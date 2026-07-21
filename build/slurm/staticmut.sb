@@ -1,0 +1,121 @@
+#!/bin/bash --login
+########## Define Resources Needed with SBATCH Lines ##########
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --array=0-999
+#SBATCH --cpus-per-task=1
+#SBATCH -t 03:00:00
+#SBATCH --mem=5GB
+#SBATCH --job-name=ROMEO-st-ts
+#SBATCH -p defq
+###############################################################
+
+module purge
+module load GCC/14.3.0
+
+# For local testing, default to first array entry :)
+if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then 
+    SLURM_ARRAY_TASK_ID=0
+fi
+
+ID=$(( SLURM_ARRAY_TASK_ID + ${OFFSET:-0} ))
+
+# Slowest to fastest
+CHANGE_PER_UPDATE=(
+    0
+    0.001
+    0.002
+    0.005
+    0.01
+    0.02
+    0.05
+    0.1
+    0.2
+    0.5
+    1
+)
+
+MU_VALUES=(
+    1e-7  
+    1e-6 
+    1e-5
+    1e-4 
+    0.001
+    0.003
+    0.006667    # 2/300, the upper bound for T=3
+    0.00775     # sqrt(0.006 * 0.01)
+    0.008333    # 5/600, the upper bound for T=6, close enough to sqrt(2/300 * 0.01)
+    0.01 
+    0.03
+    0.1
+    0.3 
+    1.0
+)
+
+TOURNY_SIZE=(
+    3
+    6
+)
+
+NUM_REPS=20
+NUM_CHANGE=${#CHANGE_PER_UPDATE[@]}  # 11
+NUM_MU=${#MU_VALUES[@]}              # 14
+NUM_TOURNY=${#TOURNY_SIZE[@]}        # 2
+TOTAL_JOBS=$(( NUM_TOURNY * NUM_MU * NUM_CHANGE * NUM_REPS ))  # 6,160
+
+# Safety check
+if [ "${ID}" -lt 0 ] || [ "${ID}" -ge "${TOTAL_JOBS}" ]; then
+    echo "ID=${ID} is out of range [0, $((TOTAL_JOBS - 1))]"
+    exit 1
+fi
+
+TOURNY_INDEX=$(( ID / (NUM_MU * NUM_CHANGE * NUM_REPS) ))
+MU_INDEX=$(( (ID / (NUM_CHANGE * NUM_REPS)) % NUM_MU ))
+CHANGE_INDEX=$(( (ID / NUM_REPS) % NUM_CHANGE ))
+REP_INDEX=$(( ID % NUM_REPS ))
+
+TOURNY=${TOURNY_SIZE[$TOURNY_INDEX]}
+MU=${MU_VALUES[$MU_INDEX]}
+CHANGE=${CHANGE_PER_UPDATE[$CHANGE_INDEX]}
+SEED=$(( REP_INDEX + 1 ))
+
+# Output sampling cadence: sample every update for fast-changing environments
+# (tau < 100), otherwise sample every 100 updates. This guarantees a usable
+# last-snapshot-before-turnover row regardless of change_per_update, while
+# keeping file sizes down for slow environments.
+# tau = updates per turnover = 100 / change_per_update
+OUTPUT_FREQ=$(awk -v c="${CHANGE}" 'BEGIN {
+    tau = (c > 0) ? 100.0 / c : 101;
+    freq = (tau < 100.0) ? tau : 100.0;
+    printf "%.10g", freq
+}')
+
+echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+echo "ID=${ID}"
+echo "TOURNY_INDEX=${TOURNY_INDEX}, TOURNY=${TOURNY}"
+echo "MU_INDEX=${MU_INDEX}, MU=${MU}"
+echo "CHANGE_INDEX=${CHANGE_INDEX}, CHANGE=${CHANGE}"
+echo "REP_INDEX=${REP_INDEX}, SEED=${SEED}"
+echo "OUTPUT_FREQ=${OUTPUT_FREQ}"
+
+./ROMEO \
+    --ROMEO.data_filename "sm_t${TOURNY}_c${CHANGE}_m${MU}_${SEED}.csv" \
+    --ROMEO.starting_count 3600 \
+    --ROMEO.target_change_per_update "${CHANGE}" \
+    --ROMEO.output_frequency "${OUTPUT_FREQ}" \
+    --ROMEO.init_mut_prob "${MU}" \
+    --ROMEO.mut_rate_mut_prob 0 \
+    --base.random_seed "${SEED}" \
+    --tourny.data_filename "tourny_sm_t${TOURNY}_c${CHANGE}_m${MU}_${SEED}.csv" \
+    --tourny.max_generations 200000 \
+    --tourny.pop_size 3600 \
+    --tourny.tourny_size "${TOURNY}"
+
+status=$?
+
+if [ "$status" -eq 0 ]; then
+    echo "Finished: ID=${ID}, T=${TOURNY}, change=${CHANGE}, mu=${MU}, seed=${SEED}"
+else
+    echo "Failed: ID=${ID}, T=${TOURNY}, change=${CHANGE}, mu=${MU}, seed=${SEED}, exit=${status}"
+    exit "$status"
+fi

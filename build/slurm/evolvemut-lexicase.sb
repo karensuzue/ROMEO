@@ -1,0 +1,81 @@
+#!/bin/bash --login
+########## Define Resources Needed with SBATCH Lines ##########
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --array=0-109
+#SBATCH --cpus-per-task=1
+#SBATCH -t 06:00:00
+#SBATCH --mem=5GB
+#SBATCH --job-name=ROMEO-em-ts
+#SBATCH -p defq
+###############################################################
+
+module purge
+module load GCC/14.3.0
+
+# For local testing, default to first array entry :)
+if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then 
+    SLURM_ARRAY_TASK_ID=0
+fi
+
+ID=$(( SLURM_ARRAY_TASK_ID + ${OFFSET:-0} ))
+
+# Slowest to fastest
+CHANGE_PER_UPDATE=(
+    0
+    0.001
+    0.002
+    0.005
+    0.01
+    0.02
+    0.05
+    0.1
+    0.2
+    0.5
+    1
+)
+
+
+NUM_REPS=10
+NUM_CHANGE=${#CHANGE_PER_UPDATE[@]}  # 11
+TOTAL_JOBS=$(( NUM_CHANGE * NUM_REPS ))  # 110
+
+# Safety check
+if [ "${ID}" -lt 0 ] || [ "${ID}" -ge "${TOTAL_JOBS}" ]; then
+    echo "ID=${ID} is out of range [0, $((TOTAL_JOBS - 1))]"
+    exit 1
+fi
+
+CHANGE_INDEX=$(( ID / NUM_REPS ))
+REP_INDEX=$(( ID % NUM_REPS ))
+
+CHANGE=${CHANGE_PER_UPDATE[$CHANGE_INDEX]}
+SEED=$(( REP_INDEX + 1 ))
+
+echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+echo "ID=${ID}"
+echo "CHANGE_INDEX=${CHANGE_INDEX}, CHANGE=${CHANGE}"
+echo "REP_INDEX=${REP_INDEX}, SEED=${SEED}"
+
+./ROMEO \
+    --ROMEO.data_filename "em_lexicase_c${CHANGE}_${SEED}.csv" \
+    --ROMEO.starting_count 3600 \
+    --ROMEO.target_change_per_update "${CHANGE}" \
+    --ROMEO.output_frequency 1 \
+    --base.random_seed "${SEED}" \
+    --base.data_dir "lexicase-data/" \
+    --lexicase.data_filename "lexicase_em_c${CHANGE}_${SEED}.csv" \
+    --lexicase.max_generations 200000 \
+    --lexicase.pop_size 3600 \
+    --lexicase.scores_name "fitness_values" \
+    --lexicase.dedup_phenotypes 1
+
+
+status=$?
+
+if [ "$status" -eq 0 ]; then
+    echo "Finished: ID=${ID}, change=${CHANGE}, seed=${SEED}"
+else
+    echo "Failed: ID=${ID}, change=${CHANGE}, seed=${SEED}, exit=${status}"
+    exit "$status"
+fi

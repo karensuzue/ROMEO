@@ -1,0 +1,44 @@
+#!/bin/bash --login
+########## Define Resources Needed with SBATCH Lines ##########
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --array=0-3
+#SBATCH -t 02:00:00
+#SBATCH --mem=16GB
+#SBATCH --job-name=ROMEO-plots
+#SBATCH -p defq
+#SBATCH --constraint=skl
+###############################################################
+
+module purge
+module load R/4.3.2
+
+# I really need to clean this up...
+export STATIC_DATA_DIR="/mnt/scratch/suzuekar/tourny-data/"
+export EVOLVE_DATA_DIR="/mnt/scratch/suzuekar/tourny-data/"
+export LEXICASE_STATIC_DIR="/mnt/scratch/suzuekar/lexicase-data/"
+export LEXICASE_EVOLVE_DIR="/mnt/scratch/suzuekar/lexicase-data/"
+
+export DATA_DIR="${STATIC_DATA_DIR}"
+export LEXICASE_DATA_DIR="${LEXICASE_STATIC_DIR}"
+
+export USE_CACHE=FALSE
+export MAX_REPS=10
+
+# fig1: which mutation rates to show in the heatmap
+export MUT_RATES="1e-7,1e-6,1e-5,1e-4,0.001,0.003,0.01,0.03,0.1,0.3,1.0"
+
+# fig2: restrict which change rates to plot (leave empty for all)
+export FIG2_CHANGE_RATES=
+
+# fig3: which change rates and selection treatments to include
+export FIG3_CHANGE_RATES="0,0.001,0.01"
+export FIG3_TOURNY="3,lexicase"
+
+case ${SLURM_ARRAY_TASK_ID} in
+    0)  WHICH_FITNESS=Best  Rscript fig1-abstract.R ;;
+    1)  Rscript fig2-abstract.R ;;
+    2)  WHICH_FITNESS=Best  Rscript fig3-abstract.R ;;
+    3)  Rscript fig4-abstract.R ;;
+esac
