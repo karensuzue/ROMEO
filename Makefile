@@ -14,10 +14,10 @@
 # Other build options, less used:
 #  grumpy - Lots of extra warnings turned on
 
-TARGET := Avida
+TARGET := ROMEO
 
 # Additional executables to build from source/<name>.cpp (each also gets a <name>-debug target)
-ALTERNATES := DOSSIER ROMEO
+ALTERNATES := DOSSIER Avida
 
 # Identify all directory locations
 EMP_DIR      = ../Empirical
