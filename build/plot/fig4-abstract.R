@@ -130,10 +130,12 @@ compile_grid <- function(per_rep) {
 make_summary_panel <- function(per_rep, grid, value_col, y_label, x_trans, x_breaks, x_nonzero_min, add_x_label = FALSE) {
     per_rep <- per_rep %>%
         mutate(tourny_label = recode(tourny_size, !!!TOURNY_LABELS),
-               tourny_label = factor(tourny_label, levels = TOURNY_LABELS))
+               tourny_label = factor(tourny_label, levels = TOURNY_LABELS)) %>%
+               droplevels()
     grid <- grid %>%
         mutate(tourny_label = recode(tourny_size, !!!TOURNY_LABELS),
-               tourny_label = factor(tourny_label, levels = TOURNY_LABELS))
+               tourny_label = factor(tourny_label, levels = TOURNY_LABELS)) %>%
+               droplevels()
 
     p <- ggplot(grid, aes(x = change_per_update, y = .data[[value_col]], color = tourny_label)) +
         geom_point(data = per_rep,
@@ -141,6 +143,8 @@ make_summary_panel <- function(per_rep, grid, value_col, y_label, x_trans, x_bre
                    alpha = 0.35, size = 5, shape = 16,
                    position = position_jitter(width = x_nonzero_min / 50, height = 0)) +
         geom_line(linewidth = 2) +
+        scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73")) +
+        scale_linetype_manual(values = c("solid", "dashed", "dotted")) +
         scale_x_continuous(trans = x_trans, breaks = x_breaks,
                            labels = scales::label_number(drop0trailing = TRUE),
                            minor_breaks = NULL) +
